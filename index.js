@@ -28,18 +28,76 @@ app.get('/', function (req, res) {
     res.render('pages/index');
 });
 
-const indexHtml = async (url, content, browser) => {
+const getDirectoryPathForUrl = (pageUrl) => {
     const now = new Date();
     const date = [now.getFullYear(), now.getMonth() + 1, now.getDate()].join('_');
     const time = [now.getHours(), now.getMinutes(), now.getSeconds()].join('_');
     const dateTimeString = [date, time].join('_');
-    const filename = url
+    const filename = pageUrl
         .replace('https://', 'https_')
         .replace('http://', 'http_')
         .replace('ftp://', 'ftp_')
         .replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const directory = path.join('data', filename);
 
+    return path.join('data', filename);
+};
+
+const downloadFileToPageDirectory = async (pageUrl, absoluteFileUrl, bar) => {
+    const directory = getDirectoryPathForUrl(pageUrl);
+    const relativeHref = absoluteFileUrl.replace(new URL(absoluteFileUrl).origin, '');
+    const dirname = path.join(directory, path.dirname(relativeHref));
+    let filename = path.basename(relativeHref);
+
+    if (filename.includes('?')) {
+        filename = filename.substr(0, filename.indexOf('?'));
+    }
+
+    const relativeFilepath = path.join(dirname, filename);
+
+
+    try {
+        const response = await fetch(absoluteFileUrl);
+
+        fs.mkdirSync(dirname, {recursive: true});
+        const streamPipeline = util.promisify(stream.pipeline);
+        await streamPipeline(response.body, fs.createWriteStream(relativeFilepath));
+
+        return true;
+    } catch (e) {
+        bar.interrupt(`Could not download '${absoluteFileUrl.substr(0, 80)}'`);
+    }
+
+    return false;
+};
+
+const getLocalUrl = (pageUrl, absoluteDownloadedUrl) => {
+    const origin = new URL(absoluteDownloadedUrl).origin;
+    return absoluteDownloadedUrl.replace(origin + '/', '');
+};
+
+const removeLeadingSlash = (string) => {
+    return string.replace(/^\//, '');
+};
+
+const getDownloadableUrl = (pageUrl, url) => {
+    const origin = new URL(pageUrl).origin;
+    let downloadableUrl = null;
+
+    if (url.match(/^[\/.]/)) {
+        downloadableUrl = new URL(url, origin).href;
+    } else if (url.match(/^https?:\/\//i)) {
+        downloadableUrl = url;
+    } else if (url.match(/^[\w]/i)) {
+        downloadableUrl = new URL('/' + url, origin).href;
+    } else {
+        console.error(`Cannot parse url '${url.substr(0, 80)}'`);
+    }
+
+    return downloadableUrl;
+};
+
+const indexHtml = async (pageUrl, content, bar) => {
+    const directory = getDirectoryPathForUrl(pageUrl);
     fs.mkdirSync(directory, {recursive: true});
 
     const $ = cheerio.load(content);
@@ -51,77 +109,93 @@ const indexHtml = async (url, content, browser) => {
         keywords = _.concat(keywords, metaKeywords);
     }
 
-    try {
-        const stylesheets = $('link[rel="stylesheet"]');
-        for (let i = 0; i < stylesheets.length; i++) {
-            const element = $(stylesheets[i]);
-            const href = new URL(element.attr('href'), url).href;
+    const stylesheets = $('link[rel="stylesheet"]');
 
+    for (let i = 0; i < stylesheets.length; i++) {
+        const element = $(stylesheets[i]);
+        const href = new URL(element.attr('href'), pageUrl).href;
+
+        try {
             const response = await fetch(href);
             const content = await response.text();
 
             element.replaceWith(`<style>\n${content}</style>`);
+        } catch (e) {
+            bar.interrupt(`Could not fetch stylesheet ${href.substr(0, 80)}`);
         }
-    } catch (e) {
-        console.error(e);
     }
 
-    try {
-        const metaIcons = $('link[href]');
-        for (let i = 0; i < metaIcons.length; i++) {
-            const element = $(metaIcons[i]);
-            const originalHref = element.attr('href');
-            element.attr('href', originalHref.substr(1));
-            const absoulteHref = new URL(originalHref, url).href;
-            const relativeHref = absoulteHref.replace(url, '');
-            const dirname = path.join(directory, path.dirname(relativeHref));
-            let filename = path.basename(relativeHref);
+    // try {
+    //     const stylesheets = $('style');
+    //     for (let i = 0; i < stylesheets.length; i++) {
+    //         const element = $(stylesheets[i]);
+    //         let content = element.contents().text();
+    //
+    //         let imports = [];
+    //
+    //         // while (true) {
+    //         //     const found = content.match(/@import url\("(.*)"\)/);
+    //         //
+    //         //     if (!found) {
+    //         //         break;
+    //         //     }
+    //         //
+    //         //     // const [group, cssUrl, offset, all] = found;
+    //         //     // const importDownloadableUrl = getDownloadableUrl(pageUrl, cssUrl);
+    //         //     // const importResponse = await fetch(importDownloadableUrl);
+    //         //     // const importContent = await importResponse.text();
+    //         // }
+    //
+    //         // const response = await fetch(href);
+    //         // const content = await response.text();
+    //         //
+    //         // element.replaceWith(`<style>\n${content}</style>`);
+    //     }
+    // } catch (e) {
+    //     console.error(e);
+    // }
 
-            if (filename.includes('?')) {
-                filename = filename.substr(0, filename.indexOf('?'));
+    const metaIcons = $('link[href][rel="apple-touch-icon"]');
+    for (let i = 0; i < metaIcons.length; i++) {
+        const element = $(metaIcons[i]);
+        const url = element.attr('href');
+
+        try {
+            if (url === pageUrl) continue;
+            if (element.attr('rel') === 'canonical') continue;
+
+            element.attr('href', removeLeadingSlash(url));
+            const absoluteFileUrl = new URL(url, pageUrl).href;
+
+            const dowloaded = await downloadFileToPageDirectory(pageUrl, absoluteFileUrl, bar);
+        } catch (e) {
+            bar.interrupt(`Could not fetch meta icon ${href.substr(0, 80)}`);
+        }
+    }
+
+    const images = $('img[src]');
+    for (let i = 0; i < images.length; i++) {
+        const element = $(images[i]);
+        const url = element.attr('src');
+        let downloadableUrl = getDownloadableUrl(pageUrl, url);
+
+        try {
+            if (downloadableUrl) {
+                const downloaded = await downloadFileToPageDirectory(pageUrl, downloadableUrl, bar);
+
+                if (downloaded) {
+                    const localUrl = getLocalUrl(pageUrl, downloadableUrl);
+                    element.attr('src', localUrl);
+                }
             }
-
-            const relativeFilepath = path.join(dirname, filename);
-
-            fs.mkdirSync(dirname, {recursive: true});
-
-            const response = await fetch(absoulteHref);
-            const streamPipeline = util.promisify(stream.pipeline);
-
-            await streamPipeline(response.body, fs.createWriteStream(relativeFilepath));
+        } catch (e) {
+            bar.interrupt(`Could not fetch image ${downloadableUrl.substr(0, 80)}`);
         }
-    } catch (e) {
-        console.error(e);
     }
 
-    try {
-        const images = $('img[src]');
-        for (let i = 0; i < images.length; i++) {
-            const element = $(images[i]);
-            const originalHref = element.attr('src');
-            element.attr('src', originalHref.substr(1));
-            const absoulteHref = new URL(originalHref, url).href;
-            const relativeHref = absoulteHref.replace(url, '');
-            const dirname = path.join(directory, path.dirname(relativeHref));
-            let filename = path.basename(relativeHref);
+    const htmlContent = $.html($('html'));
 
-            if (filename.includes('?')) {
-                filename = filename.substr(0, filename.indexOf('?'));
-            }
-
-            const relativeFilepath = path.join(dirname, filename);
-
-            fs.mkdirSync(dirname, {recursive: true});
-
-            const response = await fetch(absoulteHref);
-            const streamPipeline = util.promisify(stream.pipeline);
-
-            await streamPipeline(response.body, fs.createWriteStream(relativeFilepath));
-        }
-    } catch (e) {
-        console.error(e);
-    }
-    fs.writeFileSync(path.join(directory, 'index.html'), $('html').contents(), 'utf-8');
+    fs.writeFileSync(path.join(directory, 'index.html'), htmlContent, 'utf-8');
 
     const body = $('body');
     let bodyText = body.text();
@@ -145,7 +219,7 @@ const indexHtml = async (url, content, browser) => {
 
     if (browser) {
         const page = await browser.newPage();
-        await page.goto(url, {
+        await page.goto(pageUrl, {
             waitUntil: 'networkidle0'
         });
         await page.setViewport({width: 1920, height: 1080});
@@ -178,7 +252,7 @@ const indexHtml = async (url, content, browser) => {
     };
 };
 
-const indexUrl = async (url, browser) => {
+const indexUrl = async (url, bar) => {
     let status = -1;
     let ok = false;
     let data = null;
@@ -190,23 +264,21 @@ const indexUrl = async (url, browser) => {
         const content = await response.text();
 
         if (contentType.includes('text/html')) {
-            data = await indexHtml(url, content, browser);
+            data = await indexHtml(url, content, bar);
         }
 
         status = response.status;
         ok = response.ok;
     } catch (exception) {
-        console.log(exception);
+        bar.interrupt(`Could not index '${url}'`);
     }
 
-    const result = {
+    return {
         url,
         status,
         ok,
         data
     };
-
-    return result;
 };
 
 app.post('/index/url', async (req, res) => {
@@ -223,19 +295,34 @@ app.get('/about', function (req, res) {
 //     console.log('9999 is the magic port');
 // });
 
-const links = [
-    'https://malura.de',
-];
+const links = fs.readFileSync('./links.txt', {encoding: 'utf-8'}).split('\n');
+const offline = fs.readFileSync('./offline.txt', {encoding: 'utf-8'}).split('\n');
 
 const main = async () => {
-    const browser = null; // await puppeteer.launch();
     const bar = new ProgressBar('indexing [:bar] :percent :rate/pps :etas', {total: links.length});
 
-    // const results = [];
+    await async.eachLimit(links, 1000, async (link) => {
 
-    await async.eachLimit(links, 10, async (link) => {
-        const result = await indexUrl(link, browser);
-        const {data} = result;
+        if (offline.includes(link)) {
+            bar.tick();
+            bar.interrupt(`Skip ${link}`);
+        }
+
+        const {
+            url,
+            status,
+            ok,
+            data
+        } = await indexUrl(link, bar);
+
+        if (!ok) {
+            if (status === -1) {
+                fs.writeFileSync('./offline.txt', `${link}\n`, {
+                    encoding: 'utf-8',
+                    flag: 'a'
+                });
+            }
+        }
 
         bar.tick();
 
@@ -243,11 +330,6 @@ const main = async () => {
             console.log('complete');
         }
     });
-
-    // console.log(results);
-    if (browser) {
-        await browser.close();
-    }
 };
 
 main().then(async () => {
