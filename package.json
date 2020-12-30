@@ -1,0 +1,30 @@
+{
+  "name": "index-everything",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@node-minify/core": "^6.1.0",
+    "@node-minify/html-minifier": "^6.1.0",
+    "async": "^3.2.0",
+    "axios": "^0.21.1",
+    "cacheman": "^2.2.1",
+    "cacheman-file": "^0.2.1",
+    "cheerio": "^1.0.0-rc.5",
+    "cors": "^2.8.5",
+    "ejs": "^3.1.5",
+    "express": "^4.17.1",
+    "lodash": "^4.17.20",
+    "node-fetch": "^2.6.1",
+    "progress": "^2.0.3",
+    "puppeteer": "^5.5.0",
+    "retext": "^7.0.1",
+    "retext-keywords": "^6.0.0",
+    "retext-pos": "^3.0.0"
+  }
+}

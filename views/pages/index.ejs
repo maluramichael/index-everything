@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Index everything</title>
+    <%- include('../partials/head'); %>
+
+    <script>
+        function allowDrag(event) {
+            console.log(event);
+        }
+
+        function onDrop(event) {
+            console.log(event);
+        }
+
+        function initialize() {
+
+            //     const dropzone = document.getElementById('dropzone');
+            //     console.log(dropzone);
+            //
+            //     dropzone.addEventListener('dragstart', function (event) {
+            //         console.log('dragstart', event);
+            //     });
+            //
+            //     dropzone.addEventListener('dragenter', function (event) {
+            //         console.log('dragenter', event);
+            //     });
+            //
+            //     dropzone.addEventListener('dragover', function (event) {
+            //         event.preventDefault();
+            //     });
+            //
+            //     dropzone.addEventListener('drop', function (event) {
+            //         event.preventDefault();
+            //         console.log(event.dataTransfer);
+            //         if (event.dataTransfer.items) {
+            //             // Use DataTransferItemList interface to access the file(s)
+            //             for (let i = 0; i < event.dataTransfer.items.length; i++) {
+            //                 // If dropped items aren't files, reject them
+            //                 if (event.dataTransfer.items[i].kind === 'file') {
+            //                     var file = event.dataTransfer.items[i].getAsFile();
+            //                     console.log('... file[' + i + '].name = ' + file.name);
+            //                 }
+            //             }
+            //         } else {
+            //             // Use DataTransfer interface to access the file(s)
+            //             for (let i = 0; i < event.dataTransfer.files.length; i++) {
+            //                 console.log('... file[' + i + '].name = ' + event.dataTransfer.files[i].name);
+            //             }
+            //         }
+            //     });
+            // }
+
+
+            const linkZone = document.getElementById('linkZone');
+            console.log(linkZone);
+
+            linkZone.addEventListener('paste', function (event) {
+                const content = (event.clipboardData || window.clipboardData).getData('text');
+
+                const expression = /[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)?/gi;
+                const regex = new RegExp(expression);
+                const urls = content.match(regex)
+
+                console.log(urls);
+            });
+        }
+
+    </script>
+
+</head>
+<body class="container">
+
+<main>
+    <h1>Search</h1>
+    <label for="query" style="width: 100%">
+        <input style="width: 100%" type="text" name="query" placeholder="Search something..."/>
+    </label>
+
+    <h1>Index</h1>
+    <h3>Links</h3>
+    <label for="linkZone" style="width: 100%">
+        <textarea name="linkZone" id="linkZone" style="width: 100%" rows="10"
+                  placeholder="Drop some links..."></textarea>
+    </label>
+
+    <!--    <h3>Files</h3>-->
+    <!--    <div id="dropzone" style="border: 1px solid #333; width: 100%; min-height: 300px; padding:30px">-->
+    <!--        Drop something...-->
+    <!--    </div>-->
+</main>
+<script>
+    (function () {
+        initialize();
+    })();
+</script>
+</body>
+</html>
